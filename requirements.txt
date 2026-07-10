@@ -1,0 +1,4 @@
+﻿PySide6>=6.0
+playwright>=1.40
+plyer>=2.0
+pyinstaller>=5.1
