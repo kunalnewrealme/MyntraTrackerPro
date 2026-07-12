@@ -17,11 +17,15 @@ class RefreshWorker(QThread):
 
     def run(self) -> None:
         for product in self.products:
+            if self.isInterruptionRequested():
+                break
             url = product.get('url', '')
             if not url:
                 continue
             try:
                 updated = MyntraTracker.fetch_product(url)
+                if self.isInterruptionRequested():
+                    break
                 old_price = product.get('price', '')
                 new_price = updated.get('price', '')
                 old_stock = product.get('stock', '')

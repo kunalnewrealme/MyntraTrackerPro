@@ -9,7 +9,7 @@
     "discount": "14% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-11 16:39:37",
+    "last_checked": "2026-07-11 16:52:27",
     "lowest_price": "₹214",
     "highest_price": "₹214"
   },
@@ -23,7 +23,7 @@
     "discount": "56% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-11 16:39:48",
+    "last_checked": "2026-07-11 16:52:37",
     "lowest_price": "₹349",
     "highest_price": "₹349"
   },
@@ -37,7 +37,7 @@
     "discount": "5% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-11 16:40:00",
+    "last_checked": "2026-07-11 16:52:47",
     "lowest_price": "₹236",
     "highest_price": "₹236"
   },
@@ -51,7 +51,7 @@
     "discount": "13% OFF",
     "stock": "In Stock",
     "favorite": true,
-    "last_checked": "2026-07-11 16:40:11",
+    "last_checked": "2026-07-11 16:53:00",
     "lowest_price": "₹303",
     "highest_price": "₹303"
   },
@@ -65,7 +65,7 @@
     "discount": "10% OFF",
     "stock": "In Stock",
     "favorite": true,
-    "last_checked": "2026-07-11 16:40:26",
+    "last_checked": "2026-07-11 16:53:12",
     "lowest_price": "₹494",
     "highest_price": "₹494"
   },
@@ -79,22 +79,8 @@
     "discount": "",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-11 16:40:38",
+    "last_checked": "2026-07-11 16:43:32",
     "lowest_price": "₹645",
     "highest_price": "₹645"
-  },
-  {
-    "url": "https://www.myntra.com/hair-colour/garnier/garnier-set-of-2-color-naturals-nourishing-permanent-hair-color---natural-black-1/36496516/buy",
-    "product": "Garnier Set of 2 Color Naturals Nourishing Permanent Hair Color - Natural Black 1",
-    "brand": "Garnier",
-    "price": "₹366",
-    "target_price": "₹367",
-    "original_price": "₹458",
-    "discount": "20% OFF",
-    "stock": "In Stock",
-    "favorite": false,
-    "last_checked": "2026-07-11 16:40:48",
-    "lowest_price": "₹366",
-    "highest_price": "₹366"
   }
 ]

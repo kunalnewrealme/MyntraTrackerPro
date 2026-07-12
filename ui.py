@@ -1718,6 +1718,7 @@ class MainWindow(QMainWindow):
         return current_price == lowest_price
 
     def _on_worker_change(self, change: tuple) -> None:
+        pass
 
     def _on_worker_error(self, message: str) -> None:
         logging.warning(message)
@@ -1809,7 +1810,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'next_refresh_timer') and self.next_refresh_timer.isActive():
             self.next_refresh_timer.stop()
         if self.active_worker is not None and self.active_worker.isRunning():
-            self.active_worker.wait(2000)
+            self.active_worker.requestInterruption()
+            finished = self.active_worker.wait(5000)
+            if not finished:
+                logging.warning('RefreshWorker did not stop within 5 seconds during shutdown.')
         if self.tray_icon is not None:
             self.tray_icon.hide()
         super().closeEvent(event)
