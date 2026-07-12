@@ -32,7 +32,7 @@ class RefreshWorker(QThread):
                     self.change_signal.emit(('price_changed', old_price, new_price, product_name))
                 if old_stock != new_stock and old_stock and new_stock:
                     self.change_signal.emit(('stock_changed', old_stock, new_stock, product_name))
-                if self._is_price_reached(new_price, target_price):
+                if self._is_price_reached(new_price, target_price) and not self._was_already_at_target(old_price, target_price):
                     self.target_price_reached.emit(updated)
                 self.product_updated.emit(updated)
             except Exception as exc:
@@ -47,6 +47,16 @@ class RefreshWorker(QThread):
         except ValueError:
             return False
         return target_value > 0 and current_value <= target_value
+
+    def _was_already_at_target(self, old_price: str, target_price: str) -> bool:
+        if not old_price:
+            return False
+        try:
+            old_value = float(''.join(ch for ch in str(old_price) if ch.isdigit() or ch == '.'))
+            target_value = float(''.join(ch for ch in str(target_price) if ch.isdigit() or ch == '.'))
+        except ValueError:
+            return False
+        return target_value > 0 and old_value <= target_value
 
 
 class AutoRefreshThread(QThread):

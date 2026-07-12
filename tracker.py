@@ -1,5 +1,6 @@
 ﻿import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -280,24 +281,115 @@ class MyntraTracker:
         return result
 
     @classmethod
+    def _find_chromium_executable(cls) -> Optional[str]:
+        # Check for explicit environment variable used by Playwright
+        env_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH')
+        candidates = []
+        if env_path:
+            candidates.append(Path(env_path))
+
+        # Common cache locations
+        if sys.platform.startswith('win'):
+            local_app = os.environ.get('LOCALAPPDATA')
+            if local_app:
+                candidates.append(Path(local_app) / 'ms-playwright')
+        else:
+            candidates.append(Path.home() / '.cache' / 'ms-playwright')
+            candidates.append(Path.home() / 'Library' / 'Caches' / 'ms-playwright')
+
+        for base in candidates:
+            try:
+                if not base or not base.exists():
+                    continue
+                for child in base.iterdir():
+                    if not child.is_dir():
+                        continue
+                    if 'chromium' in child.name.lower():
+                        # search for common executable names
+                        for possible in (
+                            child / 'chrome-win64' / 'chrome.exe',
+                            child / 'chrome-win' / 'chrome.exe',
+                            child / 'chrome-win64' / 'chrome',
+                            child / 'chrome-win' / 'chrome',
+                            child / 'chrome-linux' / 'chrome',
+                            child / 'chrome-mac' / 'Chromium.app' / 'Contents' / 'MacOS' / 'Chromium',
+                        ):
+                            try:
+                                if possible.exists():
+                                    return str(possible)
+                            except Exception:
+                                continue
+                        # fallback: try to find any chrome-like file inside
+                        for exe in child.rglob('*'):
+                            if exe.is_file() and exe.name.lower() in ('chrome.exe', 'chrome', 'chromium', 'chromium.exe'):
+                                return str(exe)
+            except Exception:
+                continue
+        return None
+
+    @classmethod
     def _launch_browser(cls, headless: bool):
         playwright = sync_playwright().start()
         try:
-            browser = playwright.chromium.launch(
-                headless=headless,
-                args=['--disable-blink-features=AutomationControlled'],
-            )
+            exe_path = None
+            try:
+                exe_path = cls._find_chromium_executable()
+            except Exception:
+                exe_path = None
+
+            launch_args = ['--disable-blink-features=AutomationControlled']
+
+            if getattr(sys, 'frozen', False):
+                # Running from PyInstaller: require explicit executable_path
+                if not exe_path:
+                    logging.warning('Playwright Chromium executable could not be located (frozen).')
+                    print('Playwright Chromium browser is not installed.')
+                    try:
+                        playwright.stop()
+                    except Exception:
+                        pass
+                    return None, None
+                browser = playwright.chromium.launch(
+                    headless=headless,
+                    executable_path=exe_path,
+                    args=launch_args,
+                )
+                return playwright, browser
+
+            # Not frozen: prefer executable_path if available, else let Playwright manage
+            if exe_path:
+                browser = playwright.chromium.launch(
+                    headless=headless,
+                    executable_path=exe_path,
+                    args=launch_args,
+                )
+            else:
+                browser = playwright.chromium.launch(
+                    headless=headless,
+                    args=launch_args,
+                )
             return playwright, browser
         except Error as error:
             message = str(error).lower()
             if 'browser is not installed' in message or 'could not find browser' in message or 'executable not found' in message:
-                cls._install_chromium()
-                browser = playwright.chromium.launch(
-                    headless=headless,
-                    args=['--disable-blink-features=AutomationControlled'],
-                )
-                return playwright, browser
-            playwright.stop()
+                try:
+                    cls._install_chromium()
+                    # try again after installation
+                    browser = playwright.chromium.launch(
+                        headless=headless,
+                        args=launch_args,
+                    )
+                    return playwright, browser
+                except Exception:
+                    try:
+                        playwright.stop()
+                    except Exception:
+                        pass
+                    raise
+            try:
+                playwright.stop()
+            except Exception:
+                pass
             raise
 
     @classmethod
@@ -320,6 +412,25 @@ class MyntraTracker:
                 headless = False if attempt == 1 else True
                 logging.info('Starting browser for attempt %d (headless=%s)', attempt, headless)
                 playwright, browser = cls._launch_browser(headless)
+                if playwright is None or browser is None:
+                    logging.warning('Browser launch failed; skipping fetch for %s', url)
+                    # Clean up playwright if needed
+                    try:
+                        if playwright is not None:
+                            playwright.stop()
+                    except Exception:
+                        pass
+                    return {
+                        'url': url,
+                        'product': '',
+                        'brand': '',
+                        'image': '',
+                        'price': '',
+                        'original_price': '',
+                        'discount': '',
+                        'stock': '',
+                        'last_checked': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    }
                 page = browser.new_page()
                 try:
                     page.set_viewport_size(cls.VIEWPORT)

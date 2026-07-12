@@ -1,5 +1,6 @@
 ﻿import json
 import logging
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ class ProductStorage:
         'brand',
         'price',
         'target_price',
+        'target_notification_sent',
         'original_price',
         'discount',
         'stock',
@@ -33,6 +35,7 @@ class ProductStorage:
         self.products_file.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_products_file()
         self._ensure_history_file()
+        self._ensure_backups_folder()
 
     def _get_application_root(self) -> Path:
         if getattr(sys, 'frozen', False):
@@ -46,6 +49,10 @@ class ProductStorage:
     def _ensure_history_file(self) -> None:
         if not self.history_file.exists():
             self.history_file.write_text('[]', encoding='utf-8')
+
+    def _ensure_backups_folder(self) -> None:
+        backup_dir = self.base_path / 'data' / 'backups'
+        backup_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_history(self) -> List[Dict[str, Any]]:
         try:
@@ -93,12 +100,63 @@ class ProductStorage:
         try:
             normalized = [self._normalize_product(item) for item in products]
             previous_products = self.load_products()
+            if previous_products != normalized:
+                self.create_backup()
             self._append_history_for_refreshes(previous_products, normalized)
             self._update_price_ranges(normalized)
             self.products_file.write_text(json.dumps(normalized, indent=2, ensure_ascii=False), encoding='utf-8')
             logging.info('Saved %d products to %s', len(normalized), self.products_file)
         except Exception:
             logging.exception('Unable to save products.json')
+
+    def create_backup(self) -> Path:
+        backup_dir = self.base_path / 'data' / 'backups'
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        products_backup = backup_dir / f'products_{timestamp}.json'
+        history_backup = backup_dir / f'price_history_{timestamp}.json'
+        try:
+            shutil.copy2(self.products_file, products_backup)
+            shutil.copy2(self.history_file, history_backup)
+            logging.info('Created backup: %s and %s', products_backup, history_backup)
+            self._cleanup_backups(backup_dir)
+            return products_backup
+        except Exception:
+            logging.exception('Unable to create backup')
+            raise
+
+    def list_backups(self) -> list[Path]:
+        backup_dir = self.base_path / 'data' / 'backups'
+        if not backup_dir.exists():
+            return []
+        return sorted(backup_dir.glob('products_*.json'), key=lambda p: p.name, reverse=True)
+
+    def restore_backup(self, product_backup: Path) -> None:
+        if not product_backup.exists():
+            raise FileNotFoundError('Backup file not found')
+        timestamp = product_backup.name[len('products_'):-len('.json')]
+        history_backup = product_backup.parent / f'price_history_{timestamp}.json'
+        if not history_backup.exists():
+            raise FileNotFoundError('Price history backup not found')
+        shutil.copy2(product_backup, self.products_file)
+        shutil.copy2(history_backup, self.history_file)
+        logging.info('Restored backup %s and %s', product_backup, history_backup)
+
+    def _cleanup_backups(self, backup_dir: Path) -> None:
+        backups = sorted(backup_dir.glob('products_*.json'), key=lambda path: path.name)
+        while len(backups) > 20:
+            oldest = backups.pop(0)
+            timestamp = oldest.name[len('products_'):-len('.json')]
+            try:
+                oldest.unlink()
+            except Exception:
+                logging.exception('Unable to remove old backup %s', oldest)
+            matching_history = backup_dir / f'price_history_{timestamp}.json'
+            if matching_history.exists():
+                try:
+                    matching_history.unlink()
+                except Exception:
+                    logging.exception('Unable to remove old history backup %s', matching_history)
 
     def _append_history_for_refreshes(
         self,
@@ -155,20 +213,21 @@ class ProductStorage:
             return None
 
     def create_empty_product(self, url: str) -> Dict[str, Any]:
-        product = {field: '' for field in self.DEFAULT_FIELDS}
-        product['url'] = url
-        product['target_price'] = '0'
-        product['favorite'] = False
-        return product
+       product = {field: '' for field in self.DEFAULT_FIELDS}
+       product['url'] = url
+       product['target_price'] = '0'
+       product['target_notification_sent'] = False
+       product['favorite'] = False
+       return product
 
     def _normalize_product(self, product: Any) -> Dict[str, Any]:
-        normalized = {field: '' for field in self.DEFAULT_FIELDS}
-        if isinstance(product, dict):
-            for field in self.DEFAULT_FIELDS:
-                if field == 'target_price':
-                    normalized[field] = str(product.get(field, 0) or 0)
-                elif field == 'favorite':
-                    normalized[field] = bool(product.get(field, False))
-                else:
-                    normalized[field] = str(product.get(field, '') or '')
-        return normalized
+       normalized = {field: '' for field in self.DEFAULT_FIELDS}
+       if isinstance(product, dict):
+           for field in self.DEFAULT_FIELDS:
+               if field == 'target_price':
+                   normalized[field] = str(product.get(field, 0) or 0)
+               elif field == 'favorite' or field == 'target_notification_sent':
+                   normalized[field] = bool(product.get(field, False))
+               else:
+                   normalized[field] = str(product.get(field, '') or '')
+       return normalized

@@ -2,7 +2,9 @@
 import hashlib
 import json
 import logging
+import os
 import re
+import shutil
 import sys
 import urllib.request
 import webbrowser
@@ -17,6 +19,7 @@ except ImportError:
 
 import matplotlib
 matplotlib.use('QtAgg')
+import matplotlib.dates as mdates
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
@@ -84,6 +87,18 @@ class MainWindow(QMainWindow):
         open_data_action.triggered.connect(self._open_data_folder)
         file_menu.addAction(open_data_action)
 
+        backup_now_action = QAction('Backup Now', self)
+        backup_now_action.triggered.connect(self.backup_now)
+        file_menu.addAction(backup_now_action)
+
+        restore_backup_action = QAction('Restore Backup', self)
+        restore_backup_action.triggered.connect(self.restore_backup)
+        file_menu.addAction(restore_backup_action)
+
+        open_backup_folder_action = QAction('Open Backup Folder', self)
+        open_backup_folder_action.triggered.connect(self.open_backup_folder)
+        file_menu.addAction(open_backup_folder_action)
+
         open_logs_action = QAction('Open Logs Folder', self)
         open_logs_action.triggered.connect(self._open_logs_folder)
         file_menu.addAction(open_logs_action)
@@ -126,10 +141,14 @@ class MainWindow(QMainWindow):
 
         self.dashboard_labels = {}
         for key, title_text in [
-            ('tracked_products', 'Tracked Products'),
+            ('total_products', 'Total Products'),
             ('in_stock', 'In Stock'),
-            ('price_drops_today', 'Price Drops Today'),
+            ('out_of_stock', 'Out of Stock'),
             ('average_discount', 'Average Discount'),
+            ('biggest_discount', 'Biggest Discount'),
+            ('price_drops_today', 'Price Drops Today'),
+            ('favorites', 'Favorites'),
+            ('target_price_reached', 'Target Price Reached'),
         ]:
             card_widget, value_label = self._create_dashboard_card(title_text)
             self.dashboard_labels[key] = value_label
@@ -153,12 +172,13 @@ class MainWindow(QMainWindow):
 
         self.filter_combo = QComboBox()
         self.filter_combo.addItems([
-            'All',
-            'Favorites Only',
+            'All Products',
             'In Stock',
             'Out of Stock',
-            'Discount > 20%',
-            'Price Drop Today',
+            'Favorites',
+            'Price Dropped Today',
+            'Discount >= 50%',
+            'Target Price Reached',
         ])
         self.filter_combo.currentIndexChanged.connect(self._filter_table_rows)
         search_layout.addWidget(self.filter_combo)
@@ -352,22 +372,35 @@ class MainWindow(QMainWindow):
         for product in self.products:
             self._append_table_row(product)
         self._filter_table_rows()
-        self._update_dashboard()
+        self._update_dashboard(True)
         self._update_selected_count()
         self.status_bar.showMessage(f'{len(self.products)} products loaded')
 
-    def _update_dashboard(self) -> None:
-        total_products = len(self.products)
-        in_stock_count = sum(1 for product in self.products if product.get('stock', '').strip().lower() == 'in stock')
-        price_drops_today = self._count_price_drops_today()
-        average_discount = self._calculate_average_discount()
+    def _update_dashboard(self, visible_only: bool = False) -> None:
+        products = self._visible_products() if visible_only else self.products
+        total_products = len(products)
+        in_stock_count = sum(1 for product in products if product.get('stock', '').strip().lower() == 'in stock')
+        out_of_stock_count = sum(1 for product in products if product.get('stock', '').strip().lower() == 'out of stock')
+        favorites_count = sum(1 for product in products if bool(product.get('favorite', False)))
+        price_drops_today = self._count_price_drops_today(filtered_products=products)
+        target_price_reached = sum(
+            1
+            for product in products
+            if self._is_target_price_reached(product)
+        )
+        average_discount = self._calculate_average_discount(products)
+        biggest_discount = self._calculate_biggest_discount(products)
 
-        self.dashboard_labels.get('tracked_products').setText(str(total_products))
+        self.dashboard_labels.get('total_products').setText(str(total_products))
         self.dashboard_labels.get('in_stock').setText(str(in_stock_count))
+        self.dashboard_labels.get('out_of_stock').setText(str(out_of_stock_count))
+        self.dashboard_labels.get('favorites').setText(str(favorites_count))
         self.dashboard_labels.get('price_drops_today').setText(str(price_drops_today))
+        self.dashboard_labels.get('target_price_reached').setText(str(target_price_reached))
         self.dashboard_labels.get('average_discount').setText(f'{average_discount:.1f}%')
+        self.dashboard_labels.get('biggest_discount').setText(f'{biggest_discount:.1f}%')
 
-    def _count_price_drops_today(self) -> int:
+    def _count_price_drops_today(self, filtered_products: list[dict] | None = None) -> int:
         history_path = self.storage.base_path / 'data' / 'price_history.json'
         if not history_path.exists():
             return 0
@@ -390,7 +423,12 @@ class MainWindow(QMainWindow):
             if price is None:
                 continue
             by_url.setdefault(url, []).append((timestamp, price))
-        for prices in by_url.values():
+        visible_urls = None
+        if filtered_products is not None:
+            visible_urls = {product.get('url', '') for product in filtered_products if product.get('url')}
+        for url, prices in by_url.items():
+            if visible_urls is not None and url not in visible_urls:
+                continue
             prices.sort(key=lambda item: item[0])
             if len(prices) < 2:
                 continue
@@ -398,15 +436,37 @@ class MainWindow(QMainWindow):
                 drops += 1
         return drops
 
-    def _calculate_average_discount(self) -> float:
+    def _calculate_average_discount(self, products: list[dict] | None = None) -> float:
+        if products is None:
+            products = self.products
         discounts = []
-        for product in self.products:
+        for product in products:
             discount_value = self._parse_discount_value(product.get('discount', ''))
             if discount_value is not None:
                 discounts.append(discount_value)
         if not discounts:
             return 0.0
         return sum(discounts) / len(discounts)
+
+    def _calculate_biggest_discount(self, products: list[dict] | None = None) -> float:
+        if products is None:
+            products = self.products
+        biggest = 0.0
+        for product in products:
+            discount_value = self._parse_discount_value(product.get('discount', ''))
+            if discount_value is not None and discount_value > biggest:
+                biggest = discount_value
+        return biggest
+
+    def _is_target_price_reached(self, product: dict) -> bool:
+        current_price = self._parse_price_number(product.get('price', ''))
+        target_price = self._parse_price_number(product.get('target_price', ''))
+        if current_price is None or target_price is None or target_price <= 0:
+            return False
+        if current_price <= target_price:
+            return True
+        notes = self.notes_by_url.get(product.get('url', ''), '').strip().lower()
+        return 'target price reached' in notes
 
     def _parse_discount_value(self, discount: str) -> Optional[float]:
         if not discount:
@@ -522,6 +582,7 @@ class MainWindow(QMainWindow):
             if column == 2:
                 item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, column, item)
+        self._apply_row_background(row, product)
 
     def _find_product_index(self, url: str) -> int:
         for index, item in enumerate(self.products):
@@ -529,10 +590,24 @@ class MainWindow(QMainWindow):
                 return index
         return -1
 
+    def _visible_products(self) -> list[dict]:
+        visible = []
+        for row in range(self.table.rowCount()):
+            if self.table.isRowHidden(row):
+                continue
+            product_item = self.table.item(row, 1)
+            url = product_item.data(Qt.UserRole) if product_item else ''
+            if not url:
+                continue
+            product_index = self._find_product_index(url)
+            if product_index != -1:
+                visible.append(self.products[product_index])
+        return visible
+
     def _filter_table_rows(self) -> None:
         query = self.search_input.text().strip().lower() if hasattr(self, 'search_input') else ''
-        selected_filter = self.filter_combo.currentText() if hasattr(self, 'filter_combo') else 'All'
-        price_drop_urls = self._price_drop_today_urls() if selected_filter == 'Price Drop Today' else set()
+        selected_filter = self.filter_combo.currentText() if hasattr(self, 'filter_combo') else 'All Products'
+        price_drop_urls = self._price_drop_today_urls() if selected_filter == 'Price Dropped Today' else set()
 
         for row in range(self.table.rowCount()):
             search_match = self._row_matches_search(row, query)
@@ -541,10 +616,12 @@ class MainWindow(QMainWindow):
             self.table.setRowHidden(row, not visible)
             self._set_row_search_highlight(row, search_match and bool(query))
 
+        self._update_dashboard(True)
+
     def _row_matches_filter(self, row: int, selected_filter: str, price_drop_urls: set[str]) -> bool:
-        if selected_filter == 'All':
+        if selected_filter == 'All Products':
             return True
-        if selected_filter == 'Favorites Only':
+        if selected_filter == 'Favorites':
             product_item = self.table.item(row, 1)
             url = product_item.data(Qt.UserRole) if product_item else ''
             if not url:
@@ -559,15 +636,30 @@ class MainWindow(QMainWindow):
             return stock_text == 'in stock'
         if selected_filter == 'Out of Stock':
             return stock_text == 'out of stock'
-        if selected_filter == 'Discount > 20%':
+        if selected_filter == 'Discount >= 50%':
             discount_item = self.table.item(row, 7)
             discount_text = discount_item.text() if discount_item else ''
             discount_value = self._parse_discount_value(discount_text)
-            return discount_value is not None and discount_value > 20
-        if selected_filter == 'Price Drop Today':
+            return discount_value is not None and discount_value >= 50
+        if selected_filter == 'Price Dropped Today':
             product_item = self.table.item(row, 1)
             url = product_item.data(Qt.UserRole) if product_item else ''
             return url in price_drop_urls
+        if selected_filter == 'Target Price Reached':
+            product_item = self.table.item(row, 1)
+            url = product_item.data(Qt.UserRole) if product_item else ''
+            if not url:
+                return False
+            product_index = self._find_product_index(url)
+            if product_index == -1:
+                return False
+            product = self.products[product_index]
+            current_price = self._parse_price_number(product.get('price', ''))
+            target_price = self._parse_price_number(product.get('target_price', ''))
+            notes = self.notes_by_url.get(url, '').lower()
+            if target_price is not None and target_price > 0 and current_price is not None and current_price <= target_price:
+                return True
+            return 'target price reached' in notes
         return True
 
     def _row_matches_search(self, row: int, query: str) -> bool:
@@ -603,6 +695,45 @@ class MainWindow(QMainWindow):
                 font = item.font()
                 font.setBold(False)
                 item.setFont(font)
+
+    def _apply_row_background(self, row: int, product: dict, price_drop: bool = False) -> None:
+        if row < 0 or row >= self.table.rowCount():
+            return
+
+        current_price = self._parse_price_number(product.get('price', ''))
+        target_price = self._parse_price_number(product.get('target_price', ''))
+        target_reached = (
+            target_price is not None
+            and target_price > 0
+            and current_price is not None
+            and current_price <= target_price
+        )
+        if not target_reached:
+            notes = self.notes_by_url.get(product.get('url', ''), '').strip().lower()
+            target_reached = 'target price reached' in notes
+
+        if target_reached:
+            color = QColor('#d4f7dc')
+        elif price_drop:
+            color = QColor('#fff3b0')
+        elif product.get('stock', '').strip().lower() == 'out of stock':
+            color = QColor('#f8d7da')
+        elif bool(product.get('favorite', False)):
+            color = QColor('#d6e9ff')
+        else:
+            color = None
+
+        brush = QBrush(color) if color else QBrush()
+        style = f'background-color: {color.name()};' if color else ''
+
+        widget = self.table.cellWidget(row, 0)
+        if widget is not None:
+            widget.setStyleSheet(style)
+
+        for column in range(1, self.table.columnCount()):
+            item = self.table.item(row, column)
+            if item:
+                item.setBackground(brush)
 
     def _price_drop_today_urls(self) -> set[str]:
         history_path = self.storage.base_path / 'data' / 'price_history.json'
@@ -805,6 +936,7 @@ class MainWindow(QMainWindow):
                 item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             if column == 1:
                 item.setData(Qt.UserRole, product.get('url', ''))
+        self._apply_row_background(row, product)
 
     def add_product(self) -> None:
         url = self.url_input.text().strip()
@@ -966,7 +1098,7 @@ class MainWindow(QMainWindow):
     def show_price_history(self) -> None:
         selected_rows = sorted({index.row() for index in self.table.selectionModel().selectedRows()})
         if not selected_rows:
-            QMessageBox.information(self, 'No Selection', 'Select a product row to view price history.')
+            QMessageBox.information(self, 'No Selection', 'Please select a product.')
             return
         row = selected_rows[0]
         product_item = self.table.item(row, 1)
@@ -977,7 +1109,7 @@ class MainWindow(QMainWindow):
 
         history_path = self.storage.base_path / 'data' / 'price_history.json'
         if not history_path.exists():
-            QMessageBox.information(self, 'No History', 'No price history data is available.')
+            QMessageBox.information(self, 'No History', 'No price history available.')
             return
 
         try:
@@ -990,40 +1122,126 @@ class MainWindow(QMainWindow):
 
         product_history = [record for record in history_data if record.get('url') == url]
         if not product_history:
-            QMessageBox.information(self, 'No History', 'No price history records were found for the selected product.')
+            QMessageBox.information(self, 'No History', 'No price history available.')
             return
 
-        product_history.sort(key=lambda record: record.get('timestamp', ''))
-        timestamps = []
-        prices = []
+        parsed_history = []
         for record in product_history:
             timestamp = record.get('timestamp', '')
             price_value = self._parse_price_number(record.get('price', ''))
             if not timestamp or price_value is None:
                 continue
             try:
-                timestamps.append(datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S'))
-                prices.append(price_value)
+                parsed_history.append((datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S'), price_value, timestamp))
             except ValueError:
                 continue
 
-        if not timestamps or not prices:
-            QMessageBox.information(self, 'No History', 'Price history records are not in a valid format.')
+        if not parsed_history:
+            QMessageBox.information(self, 'No History', 'No price history available.')
             return
+
+        parsed_history.sort(key=lambda item: item[0])
+        dates = [item[0] for item in parsed_history]
+        prices = [item[1] for item in parsed_history]
+        labels = [item[2] for item in parsed_history]
+
+        lowest_index = min(range(len(prices)), key=lambda i: prices[i])
+        highest_index = max(range(len(prices)), key=lambda i: prices[i])
+        product_name = self.table.item(row, 1).text() if self.table.item(row, 1) else 'Product'
 
         dialog = QDialog(self)
         dialog.setWindowTitle('Price History')
         dialog.resize(780, 520)
 
-        figure = Figure(figsize=(7, 4))
+        figure = Figure(figsize=(7, 4), dpi=120)
         canvas = FigureCanvas(figure)
         axis = figure.add_subplot(111)
-        axis.plot(timestamps, prices, marker='o', linestyle='-', color='#2d89ef')
-        axis.set_title('Price History')
-        axis.set_xlabel('Timestamp')
-        axis.set_ylabel('Price')
+        line, = axis.plot(dates, prices, marker='o', linestyle='-', color='#2d89ef', linewidth=2, markersize=6, picker=5, antialiased=True)
+
+        lowest_price = prices[lowest_index]
+        highest_price = prices[highest_index]
+        current_price = prices[-1]
+        has_range = lowest_price != highest_price
+
+        if has_range:
+            axis.scatter([dates[lowest_index]], [lowest_price], color='green', s=100, zorder=5, label='Lowest')
+            axis.scatter([dates[highest_index]], [highest_price], color='red', s=100, zorder=5, label='Highest')
+            axis.axhline(lowest_price, color='green', linestyle='--', linewidth=1, alpha=0.7)
+            axis.axhline(highest_price, color='red', linestyle='--', linewidth=1, alpha=0.7)
+        else:
+            axis.scatter([dates[lowest_index]], [lowest_price], color='purple', s=100, zorder=5, label='Lowest = Highest')
+            axis.axhline(lowest_price, color='purple', linestyle='--', linewidth=1, alpha=0.7)
+
+        for x, y in zip(dates, prices):
+            axis.text(x, y, f'₹{y:.2f}', fontsize=8, ha='center', va='bottom', color='#ffffff', backgroundcolor='black', alpha=0.75)
+
+        axis.set_title(f'{product_name}\nPrice History')
+        axis.set_xlabel('Date/Time')
+        axis.set_ylabel('Price (₹)')
         axis.grid(True, alpha=0.3)
-        figure.autofmt_xdate()
+
+        stats_text = (
+            f'Current Price: ₹{current_price:.2f}\n'
+            f'Lowest Price: ₹{lowest_price:.2f}\n'
+            f'Highest Price: ₹{highest_price:.2f}'
+        )
+        axis.text(
+            0.02,
+            0.98,
+            stats_text,
+            transform=axis.transAxes,
+            fontsize=9,
+            va='top',
+            ha='left',
+            bbox=dict(facecolor='#1e1e1e', alpha=0.85, edgecolor='#888888', boxstyle='round,pad=0.6'),
+        )
+
+        if has_range:
+            axis.legend(loc='best')
+        else:
+            axis.legend(loc='best')
+
+        axis.xaxis.set_major_locator(mdates.AutoDateLocator())
+        axis.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+        for label in axis.get_xticklabels():
+            label.set_rotation(45)
+            label.set_ha('right')
+
+        figure.tight_layout()
+
+        annot = axis.annotate(
+            '',
+            xy=(0, 0),
+            xytext=(15, 15),
+            textcoords='offset points',
+            bbox=dict(boxstyle='round', fc='w', alpha=0.9),
+            arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.2'),
+        )
+        annot.set_visible(False)
+
+        def update_annot(ind):
+            idx = ind['ind'][0]
+            x = dates[idx]
+            y = prices[idx]
+            annot.xy = (x, y)
+            date_text = x.strftime('%Y-%m-%d')
+            time_text = x.strftime('%H:%M:%S')
+            annot.set_text(f'Date: {date_text}\nTime: {time_text}\nPrice: ₹{y:.2f}')
+            annot.get_bbox_patch().set_alpha(0.9)
+
+        def hover(event):
+            if event.inaxes == axis:
+                cont, ind = line.contains(event)
+                if cont:
+                    update_annot(ind)
+                    annot.set_visible(True)
+                    canvas.draw_idle()
+                else:
+                    if annot.get_visible():
+                        annot.set_visible(False)
+                        canvas.draw_idle()
+
+        canvas.mpl_connect('motion_notify_event', hover)
 
         layout = QVBoxLayout(dialog)
         layout.addWidget(canvas)
@@ -1176,6 +1394,88 @@ class MainWindow(QMainWindow):
         logs_folder = self.storage.base_path / 'logs'
         logs_folder.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(logs_folder)))
+
+    def open_backup_folder(self) -> None:
+        backup_folder = self.storage.base_path / 'backups'
+        backup_folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(backup_folder)))
+
+    def backup_now(self) -> None:
+        backup_root = self.storage.base_path / 'backups'
+        backup_root.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_folder = backup_root / f'backup_{timestamp}'
+        try:
+            shutil.copytree(self.storage.base_path / 'data', backup_folder)
+            QMessageBox.information(self, 'Backup Created', f'Backup created: {backup_folder.name}')
+            logging.info('Backup created: %s', backup_folder)
+        except Exception:
+            logging.exception('Backup failed')
+            QMessageBox.critical(self, 'Backup Failed', 'Unable to create a backup. See logs for details.')
+
+    def restore_backup(self) -> None:
+        backup_root = self.storage.base_path / 'backups'
+        backup_root.mkdir(parents=True, exist_ok=True)
+        backup_folder = QFileDialog.getExistingDirectory(self, 'Select Backup Folder', str(backup_root))
+        if not backup_folder:
+            return
+        backup_path = Path(backup_folder)
+        if not backup_path.exists() or not backup_path.is_dir():
+            QMessageBox.warning(self, 'Invalid Backup', 'The selected folder is not a valid backup.')
+            return
+        confirm = QMessageBox.question(
+            self,
+            'Confirm Restore',
+            f'Restore backup from {backup_path.name}? This will overwrite current product data.',
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        data_folder = self.storage.base_path / 'data'
+        try:
+            if data_folder.exists():
+                shutil.rmtree(data_folder)
+            shutil.copytree(backup_path, data_folder)
+            self._load_products()
+            QMessageBox.information(self, 'Restore Completed', 'Backup restored successfully.')
+            logging.info('Backup restored from %s', backup_path)
+        except Exception:
+            logging.exception('Restore failed')
+            QMessageBox.critical(self, 'Restore Failed', 'Unable to restore the selected backup. See logs for details.')
+        if not backups:
+            QMessageBox.information(self, 'No Backups', 'No backups are available to restore.')
+            return
+
+        backup_names = [backup.name for backup in backups]
+        selected_backup, ok = QInputDialog.getItem(
+            self,
+            'Restore Backup',
+            'Select a backup to restore:',
+            backup_names,
+            0,
+            False,
+        )
+        if not ok or not selected_backup:
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            'Confirm Restore',
+            f'Restore backup {selected_backup}? This will overwrite current products and price history.',
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            backup_path = next(backup for backup in backups if backup.name == selected_backup)
+            self.storage.restore_backup(backup_path)
+            self._load_products()
+            QMessageBox.information(self, 'Restore Completed', 'Backup restored successfully.')
+            logging.info('Restored backup %s', backup_path)
+        except Exception:
+            logging.exception('Restore failed')
+            QMessageBox.critical(self, 'Restore Failed', 'Unable to restore the selected backup. See logs for details.')
 
     def _show_logs_window(self) -> None:
         dialog = QDialog(self)
@@ -1354,20 +1654,28 @@ class MainWindow(QMainWindow):
     def _notify_changes(self, old: dict, new: dict) -> None:
         old_price = old.get('price', '')
         new_price = new.get('price', '')
+        old_price_value = self._parse_price_number(old_price)
+        new_price_value = self._parse_price_number(new_price)
         if (
-            old_price
-            and new_price
-            and old_price != new_price
+            old_price_value is not None
+            and new_price_value is not None
+            and new_price_value < old_price_value
             and self.settings.get('enable_price_notifications', True)
         ):
-            self.notifier.notify(
-                'Price Updated',
-                f"{new.get('product', 'Product')}\nPrice changed from {old_price} to {new_price}",
+            self.notifier.notify_price_change(
+                new.get('product', 'Product'),
+                f'{old_price_value:.2f}',
+                f'{new_price_value:.2f}',
             )
         old_stock = old.get('stock', '')
         new_stock = new.get('stock', '')
+        if (
+            old_stock == 'Out of Stock'
+            and new_stock == 'In Stock'
+            and self.settings.get('enable_stock_notifications', True)
+        ):
+            self.notifier.notify_stock_change(new.get('product', 'Product'))
         lowest_price_value = self._parse_price_number(new.get('lowest_price', ''))
-        new_price_value = self._parse_price_number(new_price)
         if (
             self.settings.get('enable_price_notifications', True)
             and new_price_value is not None
@@ -1379,49 +1687,19 @@ class MainWindow(QMainWindow):
                 'Lowest Price Ever',
                 f"{new.get('product', 'Product')}\n{new_price}",
             )
-        if (
-            old_stock == 'Out of Stock'
-            and new_stock == 'In Stock'
-            and self.settings.get('enable_stock_notifications', True)
-        ):
-            self.notifier.notify(
-                'Back In Stock',
-                f"{new.get('product', 'Product')} is back in stock.",
-            )
-        if (
-            old_stock
-            and new_stock
-            and old_stock != new_stock
-            and not (old_stock == 'Out of Stock' and new_stock == 'In Stock')
-            and self.settings.get('enable_stock_notifications', True)
-        ):
-            self.notifier.notify(
-                'Stock Status Changed',
-                f"{new.get('product', 'Product')} stock changed from {old_stock} to {new_stock}",
-            )
 
     def _highlight_row_changes(self, row: int, old: dict, new: dict) -> None:
         if row < 0 or row >= self.table.rowCount():
             return
         old_price = old.get('price', '')
         new_price = new.get('price', '')
-        old_stock = old.get('stock', '')
-        new_stock = new.get('stock', '')
-        color = None
-        if old_stock and new_stock and old_stock != new_stock:
-            color = QColor('#d6e9ff')
-        elif old_price and new_price and old_price != new_price:
+        price_drop = False
+        if old_price and new_price:
             old_value = self._parse_price_number(old_price)
             new_value = self._parse_price_number(new_price)
-            if old_value is not None and new_value is not None:
-                color = QColor('#d4f7dc') if new_value < old_value else QColor('#fff3b0')
-        if color is None:
-            return
-        brush = QBrush(color)
-        for column in range(self.table.columnCount()):
-            item = self.table.item(row, column)
-            if item:
-                item.setBackground(brush)
+            if old_value is not None and new_value is not None and new_value < old_value:
+                price_drop = True
+        self._apply_row_background(row, new, price_drop=price_drop)
 
     def _parse_price_number(self, price: str) -> Optional[float]:
         if not price:
@@ -1440,13 +1718,6 @@ class MainWindow(QMainWindow):
         return current_price == lowest_price
 
     def _on_worker_change(self, change: tuple) -> None:
-        if not change or len(change) < 4:
-            return
-        event, old_value, new_value, product_name = change
-        if event == 'price_changed' and self.settings.get('enable_price_notifications', True):
-            self.notifier.notify_price_change(product_name, old_value, new_value)
-        elif event == 'stock_changed' and self.settings.get('enable_stock_notifications', True):
-            self.notifier.notify_stock_change(product_name, new_value)
 
     def _on_worker_error(self, message: str) -> None:
         logging.warning(message)
@@ -1463,13 +1734,18 @@ class MainWindow(QMainWindow):
         self.notifier.notify_target_price_reached(product_name, price_text, target_text)
 
         url = updated.get('url', '')
+        self.notes_by_url[url] = 'Target Price Reached'
+        self._save_notes()
         row = self._find_table_row(url)
         if row != -1:
-            brush = QBrush(QColor('#d4f7dc'))
-            for column in range(self.table.columnCount()):
-                item = self.table.item(row, column)
-                if item:
-                    item.setBackground(brush)
+            self._apply_row_background(row, updated)
+            notes_item = self.table.item(row, 12)
+            if notes_item is None:
+                notes_item = QTableWidgetItem(self.notes_by_url[url])
+                self.table.setItem(row, 12, notes_item)
+            else:
+                notes_item.setText(self.notes_by_url[url])
+        logging.info('Target price reached for %s at %s (target %s)', product_name, price_text, target_text)
         self.status_bar.showMessage('Target price reached.')
 
     def _on_refresh_finished(self) -> None:
