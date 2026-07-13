@@ -67,6 +67,41 @@ class MyntraTracker:
         )
 
     @classmethod
+    def open_browser(cls, headless: bool):
+        logging.info('OPEN_BROWSER')
+        playwright, browser = cls._launch_browser(headless)
+        logging.info('Browser id: %s', id(browser) if browser is not None else None)
+        if playwright is None or browser is None:
+            raise RuntimeError('Unable to start Playwright browser')
+        return playwright, browser
+
+    @classmethod
+    def close_browser(cls, playwright, browser) -> None:
+        logging.info('CLOSE_BROWSER')
+        logging.info('Browser id: %s', id(browser) if browser is not None else None)
+        try:
+            if browser is not None:
+                try:
+                    for page in list(browser.pages):
+                        try:
+                            page.close()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            if playwright is not None:
+                playwright.stop()
+        except Exception:
+            pass
+
+    @classmethod
     def _read_json_ld(cls, page) -> Dict[str, Any]:
         scripts = page.locator('script[type="application/ld+json"]').all_text_contents()
         for script in scripts:
@@ -400,26 +435,23 @@ class MyntraTracker:
         page.wait_for_timeout(1500)
 
     @classmethod
-    def fetch_product(cls, url: str) -> Dict[str, str]:
+    def fetch_product(cls, url: str, browser=None) -> Dict[str, str]:
+        logging.info('FETCH_PRODUCT')
+        logging.info('Browser id: %s', id(browser) if browser is not None else None)
         logging.info('Fetching product data for %s', url)
         last_exception: Optional[Exception] = None
+        created_browser = browser is None
+        playwright = None
 
         for attempt in range(1, cls.MAX_RETRIES + 1):
-            playwright = None
-            browser = None
             page = None
             try:
-                headless = False if attempt == 1 else True
-                logging.info('Starting browser for attempt %d (headless=%s)', attempt, headless)
-                playwright, browser = cls._launch_browser(headless)
-                if playwright is None or browser is None:
-                    logging.warning('Browser launch failed; skipping fetch for %s', url)
-                    # Clean up playwright if needed
-                    try:
-                        if playwright is not None:
-                            playwright.stop()
-                    except Exception:
-                        pass
+                if created_browser:
+                    headless = False if attempt == 1 else True
+                    logging.info('Starting browser for attempt %d (headless=%s)', attempt, headless)
+                    playwright, browser = cls.open_browser(headless)
+                elif browser is None:
+                    logging.warning('Browser instance is unavailable; skipping fetch for %s', url)
                     return {
                         'url': url,
                         'product': '',
@@ -431,6 +463,7 @@ class MyntraTracker:
                         'stock': '',
                         'last_checked': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     }
+
                 page = browser.new_page()
                 try:
                     page.set_viewport_size(cls.VIEWPORT)
@@ -495,7 +528,7 @@ class MyntraTracker:
                 last_exception = exc
                 logging.exception('Attempt %d failed for %s', attempt, url)
                 if attempt < cls.MAX_RETRIES:
-                    logging.info('Restarting browser and retrying %s after attempt %d', url, attempt)
+                    logging.info('Retrying %s after attempt %d', url, attempt)
                     time.sleep(2)
                     continue
                 raise
@@ -505,15 +538,10 @@ class MyntraTracker:
                         page.close()
                 except Exception:
                     pass
-                try:
-                    if browser is not None:
-                        browser.close()
-                except Exception:
-                    pass
-                try:
-                    if playwright is not None:
-                        playwright.stop()
-                except Exception:
-                    pass
+                if created_browser:
+                    try:
+                        cls.close_browser(playwright, browser)
+                    except Exception:
+                        pass
         if last_exception:
             raise last_exception

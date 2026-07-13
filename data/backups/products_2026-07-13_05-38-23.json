@@ -10,7 +10,7 @@
     "discount": "14% OFF",
     "stock": "In Stock",
     "favorite": true,
-    "last_checked": "2026-07-13 05:37:42",
+    "last_checked": "2026-07-13 05:37:26",
     "lowest_price": "₹214",
     "highest_price": "₹214"
   },
@@ -25,7 +25,7 @@
     "discount": "56% OFF",
     "stock": "In Stock",
     "favorite": true,
-    "last_checked": "2026-07-13 05:37:49",
+    "last_checked": "2026-07-13 05:37:32",
     "lowest_price": "₹349",
     "highest_price": "₹349"
   },
@@ -39,8 +39,8 @@
     "original_price": "₹249",
     "discount": "5% OFF",
     "stock": "In Stock",
-    "favorite": true,
-    "last_checked": "2026-07-13 05:37:55",
+    "favorite": false,
+    "last_checked": "2026-07-13 05:37:38",
     "lowest_price": "₹236",
     "highest_price": "₹236"
   },
@@ -55,7 +55,7 @@
     "discount": "10% OFF",
     "stock": "In Stock",
     "favorite": true,
-    "last_checked": "2026-07-13 05:38:02",
+    "last_checked": "2026-07-13 05:37:46",
     "lowest_price": "₹303",
     "highest_price": "₹314"
   },
@@ -70,7 +70,7 @@
     "discount": "84% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-13 05:38:09",
+    "last_checked": "2026-07-13 05:37:51",
     "lowest_price": "₹494",
     "highest_price": "₹549"
   },
@@ -85,7 +85,7 @@
     "discount": "",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-13 05:38:16",
+    "last_checked": "2026-07-13 05:37:58",
     "lowest_price": "₹645",
     "highest_price": "₹645"
   },
@@ -100,7 +100,7 @@
     "discount": "21% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-13 05:38:23",
+    "last_checked": "2026-07-13 05:38:02",
     "lowest_price": "₹629",
     "highest_price": "₹629"
   },
@@ -115,7 +115,7 @@
     "discount": "35% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-13 05:38:31",
+    "last_checked": "2026-07-13 05:38:09",
     "lowest_price": "₹809",
     "highest_price": "₹809"
   },
@@ -130,7 +130,7 @@
     "discount": "33% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-13 05:38:37",
+    "last_checked": "2026-07-13 05:38:16",
     "lowest_price": "₹623",
     "highest_price": "₹623"
   },
@@ -145,7 +145,7 @@
     "discount": "5% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-13 05:38:43",
+    "last_checked": "2026-07-13 05:38:22",
     "lowest_price": "₹379",
     "highest_price": "₹379"
   },
@@ -160,7 +160,7 @@
     "discount": "20% OFF",
     "stock": "In Stock",
     "favorite": false,
-    "last_checked": "2026-07-13 05:38:48",
+    "last_checked": "2026-07-13 05:29:51",
     "lowest_price": "₹319",
     "highest_price": "₹319"
   }
