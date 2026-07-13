@@ -2,7 +2,6 @@
 import hashlib
 import json
 import logging
-import os
 import re
 import shutil
 import sys
@@ -58,7 +57,7 @@ from worker import RefreshWorker
 
 
 class MainWindow(QMainWindow):
-    COLUMN_HEADERS = ['Image', 'Product', 'Favorite', 'Brand', 'Price', 'Target Price', 'Original Price', 'Discount', 'Stock', 'Lowest Price', 'Highest Price', 'Last Checked', 'Notes']
+    COLUMN_HEADERS = ['Image', 'Status', 'Product', 'Favorite', 'Brand', 'Price', 'Target Price', 'Original Price', 'Discount', 'Stock', 'Lowest Price', 'Highest Price', 'Last Checked', 'Notes']
 
     def __init__(self) -> None:
         super().__init__()
@@ -302,7 +301,7 @@ class MainWindow(QMainWindow):
             )
         else:
             self.setStyleSheet(
-                'QWidget { background-color: #121212; color: #e0e0e; }'
+                'QWidget { background-color: #121212; color: #e0e0e0; }'
                 'QPushButton { background-color: #2d89ef; color: #ffffff; padding: 8px 14px; border-radius: 6px; }'
                 'QPushButton:hover { background-color: #1e6fde; }'
                 'QPushButton:disabled { background-color: #444444; color: #999999; }'
@@ -483,6 +482,36 @@ class MainWindow(QMainWindow):
         notes = self.notes_by_url.get(product.get('url', ''), '').strip().lower()
         return 'target price reached' in notes
 
+    def _compute_status(self, product: dict) -> str:
+        """Return status string with emoji according to rules:
+        🟢 Buy Now: price <= target
+        🟡 Near Target: price > target and within threshold percent (default 10%)
+        🔴 Above Target: price significantly above target
+        ⚪ No Target Set: no valid target
+        """
+        target_price = self._parse_price_number(product.get('target_price', ''))
+        price = self._parse_price_number(product.get('price', ''))
+        # Default threshold percent
+        threshold_pct = self.settings.get('near_target_threshold', 10)
+        try:
+            threshold_pct = float(threshold_pct)
+        except Exception:
+            threshold_pct = 10.0
+        if target_price is None or target_price <= 0:
+            return '⚪ No Target Set'
+        if price is None:
+            return '🔴 Above Target'
+        # Buy Now
+        if price <= target_price:
+            return '🟢 Buy Now'
+        # Near Target within threshold
+        try:
+            if price <= target_price * (1 + threshold_pct / 100.0):
+                return '🟡 Near Target'
+        except Exception:
+            pass
+        return '🔴 Above Target'
+
     def _parse_discount_value(self, discount: str) -> Optional[float]:
         if not discount:
             return None
@@ -575,7 +604,11 @@ class MainWindow(QMainWindow):
         if self._is_lowest_ever_price(product):
             product_label = f'{product_label} 🔥 Lowest Ever'
 
+        # Compute status for the new Status column
+        status_text = self._compute_status(product)
+
         values = [
+            status_text,
             product_label,
             favorite_text,
             product.get('brand', ''),
@@ -592,9 +625,11 @@ class MainWindow(QMainWindow):
         for column, text in enumerate(values, start=1):
             item = QTableWidgetItem(text)
             item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            if column == 1:
-                item.setData(Qt.UserRole, product.get('url', ''))
             if column == 2:
+                # Product column stores URL in UserRole
+                item.setData(Qt.UserRole, product.get('url', ''))
+            if column == 3:
+                # Favorite column center alignment
                 item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, column, item)
         self._apply_row_background(row, product)
@@ -610,7 +645,7 @@ class MainWindow(QMainWindow):
         for row in range(self.table.rowCount()):
             if self.table.isRowHidden(row):
                 continue
-            product_item = self.table.item(row, 1)
+            product_item = self.table.item(row, 2)
             url = product_item.data(Qt.UserRole) if product_item else ''
             if not url:
                 continue
@@ -637,7 +672,7 @@ class MainWindow(QMainWindow):
         if selected_filter == 'All Products':
             return True
         if selected_filter == 'Favorites':
-            product_item = self.table.item(row, 1)
+            product_item = self.table.item(row, 2)
             url = product_item.data(Qt.UserRole) if product_item else ''
             if not url:
                 return False
@@ -645,23 +680,23 @@ class MainWindow(QMainWindow):
             if product_index == -1:
                 return False
             return bool(self.products[product_index].get('favorite', False))
-        stock_item = self.table.item(row, 8)
+        stock_item = self.table.item(row, 9)
         stock_text = stock_item.text().strip().lower() if stock_item else ''
         if selected_filter == 'In Stock':
             return stock_text == 'in stock'
         if selected_filter == 'Out of Stock':
             return stock_text == 'out of stock'
         if selected_filter == 'Discount >= 50%':
-            discount_item = self.table.item(row, 7)
+            discount_item = self.table.item(row, 8)
             discount_text = discount_item.text() if discount_item else ''
             discount_value = self._parse_discount_value(discount_text)
             return discount_value is not None and discount_value >= 50
         if selected_filter == 'Price Dropped Today':
-            product_item = self.table.item(row, 1)
+            product_item = self.table.item(row, 2)
             url = product_item.data(Qt.UserRole) if product_item else ''
             return url in price_drop_urls
         if selected_filter == 'Target Price Reached':
-            product_item = self.table.item(row, 1)
+            product_item = self.table.item(row, 2)
             url = product_item.data(Qt.UserRole) if product_item else ''
             if not url:
                 return False
@@ -681,13 +716,13 @@ class MainWindow(QMainWindow):
         if not query:
             return True
 
-        searchable_columns = [1, 3, 8, 12]
+        searchable_columns = [2, 4, 9, 13]
         for column in searchable_columns:
             item = self.table.item(row, column)
             if item and query in item.text().lower():
                 return True
 
-        product_item = self.table.item(row, 1)
+        product_item = self.table.item(row, 2)
         if product_item:
             url = str(product_item.data(Qt.UserRole) or '').lower()
             if query in url:
@@ -783,7 +818,7 @@ class MainWindow(QMainWindow):
 
     def _find_table_row(self, url: str) -> int:
         for row in range(self.table.rowCount()):
-            product_name = self.table.item(row, 1)
+            product_name = self.table.item(row, 2)
             if product_name and product_name.data(Qt.UserRole) == url:
                 return row
         return -1
@@ -795,7 +830,7 @@ class MainWindow(QMainWindow):
             self.product_image_label.setPixmap(self._product_placeholder_pixmap())
             return
         row = selected_rows[0].row()
-        product_item = self.table.item(row, 1)
+        product_item = self.table.item(row, 2)
         url = product_item.data(Qt.UserRole) if product_item else ''
         if not url:
             self.product_image_label.setPixmap(self._product_placeholder_pixmap())
@@ -812,14 +847,14 @@ class MainWindow(QMainWindow):
         self.selected_count_label.setText(f'Selected: {len(selected_rows)}')
 
     def _handle_table_double_click(self, row: int, column: int) -> None:
-        if column == 5:
+        if column == 6:
             self._edit_target_price(row)
             return
-        if column == 12:
+        if column == 13:
             self._edit_notes(row)
             return
 
-        product_item = self.table.item(row, 1)
+        product_item = self.table.item(row, 2)
         url = product_item.data(Qt.UserRole) if product_item else ''
         if not url and row < len(self.products):
             url = self.products[row].get('url', '')
@@ -827,9 +862,9 @@ class MainWindow(QMainWindow):
             webbrowser.open(url)
 
     def _handle_table_cell_click(self, row: int, column: int) -> None:
-        if column != 2:
+        if column != 3:
             return
-        product_item = self.table.item(row, 1)
+        product_item = self.table.item(row, 2)
         url = product_item.data(Qt.UserRole) if product_item else ''
         if not url:
             return
@@ -846,7 +881,7 @@ class MainWindow(QMainWindow):
         return '★' if bool(favorite_value) else '☆'
 
     def _edit_notes(self, row: int) -> None:
-        product_item = self.table.item(row, 1)
+        product_item = self.table.item(row, 2)
         url = product_item.data(Qt.UserRole) if product_item else ''
         if not url:
             return
@@ -858,10 +893,10 @@ class MainWindow(QMainWindow):
 
         self.notes_by_url[url] = new_text.strip()
         self._save_notes()
-        item = self.table.item(row, 12)
+        item = self.table.item(row, 13)
         if item is None:
             item = QTableWidgetItem(self.notes_by_url[url])
-            self.table.setItem(row, 12, item)
+            self.table.setItem(row, 13, item)
         else:
             item.setText(self.notes_by_url[url])
         self.status_bar.showMessage('Notes saved')
@@ -892,7 +927,7 @@ class MainWindow(QMainWindow):
             logging.exception('Unable to save notes')
 
     def _edit_target_price(self, row: int) -> None:
-        item = self.table.item(row, 5)
+        item = self.table.item(row, 6)
         current_value = item.text() if item else ''
         new_text, ok = QInputDialog.getText(self, 'Edit Target Price', 'Target Price:', QLineEdit.Normal, current_value)
         if not ok:
@@ -906,13 +941,17 @@ class MainWindow(QMainWindow):
         formatted = f'₹{value}' if not value.startswith('₹') else value
         if item is None:
             item = QTableWidgetItem(formatted)
-            self.table.setItem(row, 4, item)
+            self.table.setItem(row, 6, item)
         else:
             item.setText(formatted)
-        if row < len(self.products):
-            product = self.products[row]
-            product['target_price'] = formatted
-            self.storage.save_products(self.products)
+        # Update underlying product via URL -> index mapping
+        product_item = self.table.item(row, 2)
+        url = product_item.data(Qt.UserRole) if product_item else ''
+        if url:
+            product_index = self._find_product_index(url)
+            if product_index != -1:
+                self.products[product_index]['target_price'] = formatted
+                self.storage.save_products(self.products)
         self.status_bar.showMessage('Target price updated')
 
     def _update_table_row(self, product: dict, row: int) -> None:
@@ -924,7 +963,10 @@ class MainWindow(QMainWindow):
         if self._is_lowest_ever_price(product):
             product_label = f'{product_label} 🔥 Lowest Ever'
 
+        status_text = self._compute_status(product)
+
         values = [
+            status_text,
             product_label,
             favorite_text,
             product.get('brand', ''),
@@ -945,11 +987,11 @@ class MainWindow(QMainWindow):
                 self.table.setItem(row, column, item)
             else:
                 item.setText(text)
-            if column == 2:
+            if column == 3:
                 item.setTextAlignment(Qt.AlignCenter)
             else:
                 item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            if column == 1:
+            if column == 2:
                 item.setData(Qt.UserRole, product.get('url', ''))
         self._apply_row_background(row, product)
 
@@ -978,9 +1020,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, 'Nothing Selected', 'Please select at least one row to delete.')
             return
         for row in selected_rows:
-            url = self.table.item(row, 1).data(Qt.UserRole) if self.table.item(row, 1) else ''
+            product_item = self.table.item(row, 2)
+            url = product_item.data(Qt.UserRole) if product_item else ''
             if not url:
-                url = self.products[row].get('url', '')
+                # Unable to determine product for this row; skip deleting it
+                continue
             self.products = [item for item in self.products if item.get('url') != url]
             self.table.removeRow(row)
         self.storage.save_products(self.products)
@@ -993,13 +1037,14 @@ class MainWindow(QMainWindow):
             return
         products_to_refresh = []
         for row in selected_rows:
-            url = self.table.item(row, 1).data(Qt.UserRole) if self.table.item(row, 1) else ''
-            if not url and row < len(self.products):
-                url = self.products[row].get('url', '')
-            if url:
-                product_index = self._find_product_index(url)
-                if product_index != -1:
-                    products_to_refresh.append(self.products[product_index])
+            product_item = self.table.item(row, 2)
+            url = product_item.data(Qt.UserRole) if product_item else ''
+            if not url:
+                # Cannot resolve product for this row; skip it
+                continue
+            product_index = self._find_product_index(url)
+            if product_index != -1:
+                products_to_refresh.append(self.products[product_index])
         self.refresh_products(products_to_refresh)
 
     def refresh_all(self) -> None:
@@ -1020,17 +1065,24 @@ class MainWindow(QMainWindow):
                 writer = csv.writer(csv_file)
                 writer.writerow(self.COLUMN_HEADERS + ['URL'])
                 for product in self.products:
-                    writer.writerow([
+                    row_data = [
+                        product.get('image', ''),
+                        self._compute_status(product),
                         product.get('product', ''),
                         '★' if product.get('favorite', False) else '☆',
                         product.get('brand', ''),
                         product.get('price', ''),
+                        product.get('target_price', ''),
                         product.get('original_price', ''),
                         product.get('discount', ''),
                         product.get('stock', ''),
+                        product.get('lowest_price', ''),
+                        product.get('highest_price', ''),
                         product.get('last_checked', ''),
+                        self.notes_by_url.get(product.get('url', ''), ''),
                         product.get('url', ''),
-                    ])
+                    ]
+                    writer.writerow(row_data)
             self.status_bar.showMessage(f'Exported {len(self.products)} products to CSV')
         except Exception:
             logging.exception('Unable to export CSV')
@@ -1053,20 +1105,27 @@ class MainWindow(QMainWindow):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = 'Products'
-        headers = ['Product', 'Favorite', 'Brand', 'Price', 'Original Price', 'Discount', 'Stock', 'Last Checked', 'URL']
+        headers = self.COLUMN_HEADERS + ['URL']
         sheet.append(headers)
         for product in self.products:
-            sheet.append([
+            row = [
+                product.get('image', ''),
+                self._compute_status(product),
                 product.get('product', ''),
                 'Yes' if product.get('favorite', False) else 'No',
                 product.get('brand', ''),
                 product.get('price', ''),
+                product.get('target_price', ''),
                 product.get('original_price', ''),
                 product.get('discount', ''),
                 product.get('stock', ''),
+                product.get('lowest_price', ''),
+                product.get('highest_price', ''),
                 product.get('last_checked', ''),
+                self.notes_by_url.get(product.get('url', ''), ''),
                 product.get('url', ''),
-            ])
+            ]
+            sheet.append(row)
         try:
             workbook.save(file_path)
             self.status_bar.showMessage(f'Exported {len(self.products)} products to Excel')
@@ -1116,7 +1175,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, 'No Selection', 'Please select a product.')
             return
         row = selected_rows[0]
-        product_item = self.table.item(row, 1)
+        product_item = self.table.item(row, 2)
         url = product_item.data(Qt.UserRole) if product_item else ''
         if not url:
             QMessageBox.warning(self, 'Missing URL', 'Selected product does not have a valid URL.')
@@ -1162,7 +1221,7 @@ class MainWindow(QMainWindow):
 
         lowest_index = min(range(len(prices)), key=lambda i: prices[i])
         highest_index = max(range(len(prices)), key=lambda i: prices[i])
-        product_name = self.table.item(row, 1).text() if self.table.item(row, 1) else 'Product'
+        product_name = self.table.item(row, 2).text() if self.table.item(row, 2) else 'Product'
 
         dialog = QDialog(self)
         dialog.setWindowTitle('Price History')
@@ -1866,10 +1925,10 @@ class MainWindow(QMainWindow):
         row = self._find_table_row(url)
         if row != -1:
             self._apply_row_background(row, updated)
-            notes_item = self.table.item(row, 12)
+            notes_item = self.table.item(row, 13)
             if notes_item is None:
                 notes_item = QTableWidgetItem(self.notes_by_url[url])
-                self.table.setItem(row, 12, notes_item)
+                self.table.setItem(row, 13, notes_item)
             else:
                 notes_item.setText(self.notes_by_url[url])
         logging.info('Target price reached for %s at %s (target %s)', product_name, price_text, target_text)
