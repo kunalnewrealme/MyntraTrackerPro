@@ -1,42 +1,61 @@
-﻿# Myntra Tracker Pro
+# 🛍️ Myntra Tracker Pro
 
-Myntra Tracker Pro is a desktop product tracking application for Myntra. It monitors price and stock status changes in the background and notifies you when updates occur.
+Myntra Tracker Pro is a Windows desktop application that helps you track Myntra product prices, stock availability, discounts, and target prices.
 
-## Installation
+## ✨ Features
 
-1. Create and activate a Python 3.14 virtual environment (recommended):
+- ✅ Track unlimited Myntra products
+- ✅ Refresh All / Refresh Selected
+- ✅ Browser reuse for faster refresh
+- ✅ Auto Refresh
+- ✅ Target Price Alerts
+- ✅ Buy Now status
+- ✅ Lowest Price Tracking
+- ✅ Price History
+- ✅ CSV Import / Export
+- ✅ Excel Export
+- ✅ Progress Bar
+- ✅ Refresh Summary
+- ✅ Favorites
+- ✅ Light & Dark Theme
 
-   python -m venv venv
-   venv\Scripts\activate
+## 📦 Installation
 
-2. Install the dependencies:
+1. Go to the Releases page.
+2. Download the latest **MyntraTrackerPro.exe**.
+3. Run the application.
+4. The application automatically creates:
+   - `data/`
+   - `logs/`
 
-   pip install -r requirements.txt
+No installation is required.
 
-3. Install Playwright Chromium browser binaries:
+## 🚀 How to Use
 
-   python -m playwright install chromium
+1. Paste a Myntra product URL.
+2. Click **Add Product**.
+3. Set a Target Price (optional).
+4. Click **Refresh All**.
+5. Track price drops and stock changes.
 
-4. Run the application:
+## 📊 Main Features
 
-   python app.py
+- Price Monitoring
+- Stock Monitoring
+- Lowest Price Tracking
+- Target Price Alerts
+- Buy Now Indicator
+- Auto Refresh
+- CSV / Excel Export
 
-## Features
+## 💻 Requirements
 
-- Modern PySide6 desktop GUI
-- Add unlimited Myntra product URLs
-- Background tracking with Playwright Chromium (headless)
-- Tracks product name, brand, current price, original price, discount, stock status, and last checked time
-- Auto refresh every 5 minutes without freezing the interface
-- Detects price and stock changes and sends Windows notifications
-- Save and load tracked products from `data/products.json`
-- Delete products, refresh selected rows, refresh all, and export to CSV
-- Logging to `logs/app.log`
+- Windows 10 or Windows 11
 
-## Build Executable
+## 📜 License
 
-Run the build script to create a standalone Windows executable:
+This project is for educational and personal use.
 
-   build_exe.bat
+## 👨‍💻 Developer
 
-The generated executable will be available in the `dist` folder.
+NK Nk
