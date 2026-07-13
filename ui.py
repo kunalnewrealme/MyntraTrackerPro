@@ -1646,8 +1646,6 @@ class MainWindow(QMainWindow):
             existing = {k: '' for k in self.storage.DEFAULT_FIELDS}
             self.products.append(updated)
             index = len(self.products) - 1
-        self.storage.save_products(self.products)
-        self._refresh_table()
         self._highlight_row_changes(index, existing, updated)
         self._notify_changes(existing, updated)
 
@@ -1750,6 +1748,9 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage('Target price reached.')
 
     def _on_refresh_finished(self) -> None:
+        self.storage.save_products(self.products)
+        self._refresh_table()
+        self._update_dashboard(True)
         self._set_refresh_buttons_enabled(True)
         self.status_bar.showMessage('Ready')
         self.last_refresh_label.setText(f'Last Refresh: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')

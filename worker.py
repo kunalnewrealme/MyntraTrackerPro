@@ -8,7 +8,6 @@ class RefreshWorker(QThread):
     product_updated = Signal(dict)
     change_signal = Signal(tuple)
     target_price_reached = Signal(dict)
-    finished = Signal()
     error = Signal(str)
 
     def __init__(self, products: list[dict]) -> None:
@@ -82,7 +81,6 @@ class RefreshWorker(QThread):
                     MyntraTracker.close_browser(playwright, browser)
             except Exception:
                 pass
-            self.finished.emit()
 
     def _is_browser_usable(self, browser) -> bool:
         if browser is None:
