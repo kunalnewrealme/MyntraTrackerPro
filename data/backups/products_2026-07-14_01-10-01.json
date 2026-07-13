@@ -9,8 +9,8 @@
     "original_price": "₹249",
     "discount": "10% OFF",
     "stock": "In Stock",
-    "favorite": true,
-    "last_checked": "2026-07-14 01:10:00",
+    "favorite": false,
+    "last_checked": "2026-07-14 00:21:37",
     "lowest_price": "₹214",
     "highest_price": "₹224"
   },
@@ -24,7 +24,7 @@
     "original_price": "₹795",
     "discount": "56% OFF",
     "stock": "In Stock",
-    "favorite": false,
+    "favorite": true,
     "last_checked": "2026-07-14 00:21:41",
     "lowest_price": "₹349",
     "highest_price": "₹349"

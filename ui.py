@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QInputDialog,
     QTextEdit,
+    QProgressBar,
 )
 
 from notifier import Notifier
@@ -266,9 +267,23 @@ class MainWindow(QMainWindow):
         self.last_refresh_label.setStyleSheet('color: #c8c8c8; padding-right: 12px;')
         self.selected_count_label = QLabel('Selected: 0')
         self.selected_count_label.setStyleSheet('color: #c8c8c8; padding-right: 12px;')
+        # Progress widgets (hidden until a refresh starts)
+        self.progress_count_label = QLabel('')
+        self.progress_count_label.setStyleSheet('color: #c8c8c8; padding-right: 12px;')
+        self.progress_count_label.setVisible(False)
+        self.progress_product_label = QLabel('')
+        self.progress_product_label.setStyleSheet('color: #c8c8c8; padding-right: 12px;')
+        self.progress_product_label.setVisible(False)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
         self.status_bar.addPermanentWidget(self.last_refresh_label)
         self.status_bar.addPermanentWidget(self.next_refresh_label)
         self.status_bar.addPermanentWidget(self.selected_count_label)
+        self.status_bar.addPermanentWidget(self.progress_product_label)
+        self.status_bar.addPermanentWidget(self.progress_count_label)
+        self.status_bar.addPermanentWidget(self.progress_bar)
         self.status_bar.showMessage('Ready')
 
         self._apply_styles()
@@ -1630,9 +1645,37 @@ class MainWindow(QMainWindow):
         self.active_worker.target_price_reached.connect(self._on_target_price_reached)
         self.active_worker.error.connect(self._on_worker_error)
         self.active_worker.finished.connect(self._on_refresh_finished)
+        # Connect progress signal for live refresh updates
+        try:
+            self.active_worker.progress_changed.connect(self._on_progress_changed)
+        except Exception:
+            pass
         self._set_refresh_buttons_enabled(False)
         self.status_bar.showMessage('Refreshing...')
         self.active_worker.start()
+        # Initialize and show progress widgets immediately
+        # Determine whether this was an auto-triggered refresh
+        self._last_refresh_was_auto = getattr(self, '_refresh_was_auto', False)
+        # Clear the one-time auto flag
+        try:
+            self._refresh_was_auto = False
+        except Exception:
+            pass
+        # Connect summary signal
+        try:
+            self.active_worker.refresh_summary.connect(self._on_refresh_summary)
+        except Exception:
+            pass
+        try:
+            total = len(products)
+            self.progress_bar.setValue(0)
+            self.progress_count_label.setText(f'Refreshing\n0 / {total}')
+            self.progress_product_label.setText('')
+            self.progress_count_label.setVisible(True)
+            self.progress_product_label.setVisible(True)
+            self.progress_bar.setVisible(True)
+        except Exception:
+            pass
 
     def _on_product_updated(self, updated: dict) -> None:
         if not updated:
@@ -1722,6 +1765,91 @@ class MainWindow(QMainWindow):
         logging.warning(message)
         self.status_bar.showMessage(message)
 
+    def _on_progress_changed(self, payload: dict) -> None:
+        """Handle progress updates from RefreshWorker.
+
+        Payload structure:
+            {
+                "current": int,
+                "total": int,
+                "percent": int,
+                "product": str,
+            }
+        """
+        try:
+            current = int(payload.get('current', 0))
+            total = int(payload.get('total', 0))
+            percent = int(payload.get('percent', 0))
+            product = payload.get('product', '') or ''
+        except Exception:
+            return
+        # Update widgets and ensure they are visible
+        try:
+            self.progress_count_label.setText(f'Refreshing\n{current} / {total}')
+            self.progress_product_label.setText(str(product))
+            self.progress_bar.setValue(percent)
+            self.progress_count_label.setVisible(True)
+            self.progress_product_label.setVisible(True)
+            self.progress_bar.setVisible(True)
+        except Exception:
+            pass
+
+    def _hide_progress_widgets(self) -> None:
+        try:
+            self.progress_bar.setVisible(False)
+            self.progress_count_label.setVisible(False)
+            self.progress_product_label.setVisible(False)
+        except Exception:
+            pass
+
+    def _on_refresh_summary(self, summary: dict) -> None:
+        """Handle final refresh summary emitted by RefreshWorker.
+
+        Behavior:
+          - If the refresh was auto-triggered: do NOT show a dialog; store the summary and update status bar.
+          - If manual: show a summary dialog with formatted values.
+        """
+        try:
+            # Store the summary for future use
+            self._last_refresh_summary = summary
+            checked = int(summary.get('checked', 0))
+            success = int(summary.get('success', 0))
+            failed = int(summary.get('failed', 0))
+            price_drop = int(summary.get('price_drop', 0))
+            price_up = int(summary.get('price_up', 0))
+            back_in_stock = int(summary.get('back_in_stock', 0))
+            out_of_stock = int(summary.get('out_of_stock', 0))
+            target_hit = int(summary.get('target_hit', 0))
+            duration = float(summary.get('duration_seconds', 0.0))
+
+            minutes = int(duration // 60)
+            seconds = int(duration % 60)
+            duration_str = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
+
+            # If this refresh was auto-triggered, do not show popup
+            if getattr(self, '_last_refresh_was_auto', False):
+                self.status_bar.showMessage('Auto Refresh Complete')
+                # Keep the summary stored for later
+                self._last_refresh_was_auto = False
+                return
+
+            # Manual refresh: show a dialog
+            summary_text = (
+                f"Refresh Complete\n\n"
+                f"Checked: {checked}\n"
+                f"Success: {success}\n"
+                f"Failed: {failed}\n"
+                f"Price Drops: {price_drop}\n"
+                f"Price Increased: {price_up}\n"
+                f"Back In Stock: {back_in_stock}\n"
+                f"Out Of Stock: {out_of_stock}\n"
+                f"Target Hit: {target_hit}\n"
+                f"Duration: {duration_str}\n"
+            )
+            QMessageBox.information(self, 'Refresh Summary', summary_text)
+        except Exception:
+            pass
+
     def _on_target_price_reached(self, updated: dict) -> None:
         product_name = updated.get('product', 'Product')
         current_price = self._parse_price_number(updated.get('price', ''))
@@ -1757,6 +1885,19 @@ class MainWindow(QMainWindow):
         self._update_selected_count()
         self.active_worker = None
 
+        # Finalize progress UI: set to 100% and show completion briefly
+        try:
+            total = len(self.products)
+            self.progress_bar.setValue(100)
+            self.progress_count_label.setText(f'Refreshing\n{total} / {total}')
+            self.progress_product_label.setText('Refresh Complete')
+            self.progress_bar.setVisible(True)
+            self.progress_count_label.setVisible(True)
+            self.progress_product_label.setVisible(True)
+            QTimer.singleShot(2000, self._hide_progress_widgets)
+        except Exception:
+            pass
+
     def _set_refresh_buttons_enabled(self, enabled: bool) -> None:
         self.refresh_selected_button.setEnabled(enabled)
         self.refresh_all_button.setEnabled(enabled)
@@ -1783,6 +1924,8 @@ class MainWindow(QMainWindow):
 
     def _on_auto_refresh_timeout(self) -> None:
         self._reset_countdown()
+        # Mark that this refresh was triggered by auto-refresh
+        self._refresh_was_auto = True
         self.refresh_all()
 
     def _update_countdown(self) -> None:

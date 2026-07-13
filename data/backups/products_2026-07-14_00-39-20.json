@@ -4,13 +4,13 @@
     "product": "DOT & KEY Barrier Repair Probiotics 5 Ceramides PH5.5 Hydrating Gentle Face Wash 100ml - Face Wash And Cleanser for Unisex 19953112",
     "brand": "DOT & KEY",
     "price": "₹224",
-    "target_price": "₹250",
+    "target_price": "0",
     "target_notification_sent": false,
     "original_price": "₹249",
     "discount": "10% OFF",
     "stock": "In Stock",
-    "favorite": true,
-    "last_checked": "2026-07-14 01:10:00",
+    "favorite": false,
+    "last_checked": "2026-07-14 00:21:37",
     "lowest_price": "₹214",
     "highest_price": "₹224"
   },
@@ -24,7 +24,7 @@
     "original_price": "₹795",
     "discount": "56% OFF",
     "stock": "In Stock",
-    "favorite": false,
+    "favorite": true,
     "last_checked": "2026-07-14 00:21:41",
     "lowest_price": "₹349",
     "highest_price": "₹349"
@@ -462,7 +462,7 @@
     "favorite": false,
     "last_checked": "2026-07-14 00:24:24",
     "lowest_price": "₹548",
-    "highest_price": "₹1192"
+    "highest_price": "₹1143"
   },
   {
     "url": "https://www.myntra.com/26664068",
@@ -766,47 +766,17 @@
   },
   {
     "url": "https://www.myntra.com/22830718F",
-    "product": "Pillow Cover 27 - Pillow Cover 27 online in India",
-    "brand": "Pillow Cover",
-    "price": "₹200",
+    "product": "",
+    "brand": "",
+    "price": "",
     "target_price": "0",
     "target_notification_sent": false,
-    "original_price": "₹1,200",
-    "discount": "83% OFF",
-    "stock": "In Stock",
+    "original_price": "",
+    "discount": "",
+    "stock": "",
     "favorite": false,
-    "last_checked": "2026-07-14 00:39:19",
-    "lowest_price": "₹200",
-    "highest_price": "₹200"
-  },
-  {
-    "url": "https://www.myntra.com/22830718htrwews",
-    "product": "Sarees | Sarees for Women Online in India",
-    "brand": "Sarees",
-    "price": "₹200",
-    "target_price": "0",
-    "target_notification_sent": false,
-    "original_price": "₹10,200",
-    "discount": "98% OFF",
-    "stock": "In Stock",
-    "favorite": false,
-    "last_checked": "2026-07-14 00:39:36",
-    "lowest_price": "₹200",
-    "highest_price": "₹200"
-  },
-  {
-    "url": "https://www.myntra.com/sfdsfue3333",
-    "product": "Shop The Best Casual Shoes With Upto 80% Off",
-    "brand": "Shop The Best",
-    "price": "₹100",
-    "target_price": "0",
-    "target_notification_sent": false,
-    "original_price": "₹10,100",
-    "discount": "99% OFF",
-    "stock": "In Stock",
-    "favorite": false,
-    "last_checked": "2026-07-14 00:40:00",
-    "lowest_price": "₹100",
-    "highest_price": "₹100"
+    "last_checked": "",
+    "lowest_price": "",
+    "highest_price": ""
   }
 ]
