@@ -59,3 +59,20 @@ This project is for educational and personal use.
 ## 👨‍💻 Developer
 
 NK Nk
+
+## 📸 Screenshots
+
+### Dashboard
+![Dashboard](assets/dashboard.png)
+
+### Refresh Progress
+![Refresh Progress](assets/progress.png)
+
+### Buy Now Status
+![Buy Now](assets/buy-now.png)
+
+### Settings
+![Settings](assets/settings.png)
+
+### Price History
+![Price History](assets/price-history.png)
